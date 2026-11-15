@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  >
+
+  <meta name="theme-color" content="#fff9ee">
+
+  <title>持久走・周回カウンター</title>
+
+  <link rel="stylesheet" href="style.css">
+
+  <style>
+    /*
+     * 名前欄
+     *
+     * 奇数行：白
+     * 偶数行：黄色
+     */
+    .student-row:nth-child(odd) > .name-cell {
+      background-color: #ffffff;
+      background-image: none;
+    }
+
+    .student-row:nth-child(even) > .name-cell {
+      background-color: #ffff80;
+      background-image: none;
+    }
+
+    /*
+     * 偶数行には薄い黄色を重ねる。
+     *
+     * 記録済みの周回セルには重ねないため、
+     * 緑・ピンク・水色の判定色はそのまま表示されます。
+     */
+    .student-row:nth-child(even) > .pace-cell,
+    .student-row:nth-child(even) > .lap-cells > .lap-unused,
+    .student-row:nth-child(even) > .lap-cells > .retired-cell,
+    .student-row:nth-child(even) > .finish-cell,
+    .student-row:nth-child(even) > .viewer-cell {
+      background-image: linear-gradient(
+        rgba(255, 235, 59, 0.30),
+        rgba(255, 235, 59, 0.30)
+      );
+    }
+
+    /*
+     * 偶数行の未記録の周回セルにも薄い黄色を重ねる。
+     * 記録済みセルの判定色には影響しません。
+     */
+    .student-row:nth-child(even)
+      > .lap-cells
+      > .lap-cell:not(.difference-green):not(.difference-red):not(.difference-blue) {
+      background-image: linear-gradient(
+        rgba(255, 235, 59, 0.30),
+        rgba(255, 235, 59, 0.30)
+      );
+    }
+
+    /*
+     * −1・＋1の文字を大きく、太くする。
+     *
+     * 操作セル自体がボタンの場合と、
+     * 操作セルの中にボタンがある場合の両方に対応。
+     */
+    .student-row > .action-cells > .minus-cell,
+    .student-row > .action-cells > .plus-cell,
+    .student-row > .action-cells > .minus-cell button,
+    .student-row > .action-cells > .plus-cell button {
+      font-size: clamp(22px, 2.4vw, 30px);
+      font-weight: 800;
+    }
+
+    /*
+     * 奇数行の操作欄
+     *
+     * −1：鮮やかな水色
+     * ＋1：鮮やかなピンク
+     */
+    .student-row:nth-child(odd) > .action-cells > .minus-cell {
+      background-color: #35baf2;
+      background-image: none;
+      color: #063c67;
+    }
+
+    .student-row:nth-child(odd) > .action-cells > .plus-cell {
+      background-color: #ff70ad;
+      background-image: none;
+      color: #681034;
+    }
+
+    /*
+     * 偶数行の操作欄
+     *
+     * −1：黄色がかった鮮やかな水色
+     * ＋1：黄色がかった鮮やかなピンク
+     */
+    .student-row:nth-child(even) > .action-cells > .minus-cell {
+      background-color: #49d5b0;
+      background-image: none;
+      color: #063c67;
+    }
+
+    .student-row:nth-child(even) > .action-cells > .plus-cell {
+      background-color: #ff9c73;
+      background-image: none;
+      color: #681034;
+    }
+
+    /*
+     * 操作セルの中にボタンがある場合は、
+     * セル側の背景色と文字色を使用する。
+     */
+    .student-row > .action-cells > .minus-cell button,
+    .student-row > .action-cells > .plus-cell button {
+      background-color: transparent;
+      background-image: none;
+      color: inherit;
+    }
+  </style>
+</head>
+
+<body>
+  <main id="app">
+    <!-- 役割選択 -->
+    <section id="roleScreen" class="role-screen">
+      <div class="role-panel">
+        <h1>この端末の役割</h1>
+
+        <label class="role-option">
+          <input type="radio" name="role" value="A" checked>
+          <span>A：周回記録・設定（親機）</span>
+        </label>
+
+        <label class="role-option">
+          <input type="radio" name="role" value="B">
+          <span>B：ゴール記録</span>
+        </label>
+
+        <label class="role-option">
+          <input type="radio" name="role" value="C">
+          <span>C：閲覧専用</span>
+        </label>
+
+        <label class="field-label" for="roomKey">
+          接続キー
+        </label>
+
+        <input
+          id="roomKey"
+          class="key-input"
+          type="text"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          placeholder="Aに表示されるキー"
+          disabled
+        >
+
+        <p class="role-help">
+          Aを先に起動してください。<br>
+          BとCは、Aに表示される接続キーを入力します。<br>
+          Aの接続情報は、このブラウザーに保存されます。
+        </p>
+
+        <button
+          id="launchButton"
+          class="launch-button"
+          type="button"
+        >
+          起動
+        </button>
+
+        <p
+          id="roleError"
+          class="error-message"
+          aria-live="polite"
+        ></p>
+      </div>
+    </section>
+
+    <!-- 接続情報 -->
+    <header
+      id="connectionHeader"
+      class="connection-header hidden"
+    >
+      <div class="connection-top">
+        <div
+          id="connectionInfo"
+          class="connection-info"
+        ></div>
+
+        <button
+          id="leaveButton"
+          class="small-button"
+          type="button"
+        >
+          役割選択へ
+        </button>
+      </div>
+
+      <div
+        id="connectionStatus"
+        class="connection-status"
+      ></div>
+
+      <div
+        id="notice"
+        class="notice"
+        aria-live="polite"
+      ></div>
+    </header>
+
+    <!-- 人数選択 -->
+    <section id="setupScreen" class="setup-screen hidden">
+      <div class="setup-panel">
+        <h1>持久走・周回カウンター</h1>
+
+        <p class="setup-message">
+          それぞれのペースで、最後まで走ろう！
+        </p>
+
+        <div class="runner-illustration" aria-hidden="true">
+          🏃　🏃‍♀️　🏃
+        </div>
+
+        <div class="setup-controls">
+          <label for="studentCount">
+            ランナーの人数
+          </label>
+
+          <select
+            id="studentCount"
+            aria-label="ランナーの人数"
+          ></select>
+
+          <span>名</span>
+        </div>
+
+        <button
+          id="prepareButton"
+          class="next-button"
+          type="button"
+        >
+          次の画面へ ▶
+        </button>
+
+        <p class="setup-help">
+          次の画面で、名前・周数・目標ペースを設定します。<br>
+          A：設定・スタート・通常の周回記録<br>
+          B：残り1周からのゴール記録<br>
+          C：閲覧専用
+        </p>
+      </div>
+    </section>
+
+    <!-- 周回記録 -->
+    <section
+      id="counterScreen"
+      class="counter-screen hidden"
+    >
+      <div class="counter-toolbar">
+        <button
+          id="startButton"
+          class="start-button"
+          type="button"
+        >
+          ▶ スタート
+        </button>
+
+        <div id="timer" class="timer">
+          00:00
+        </div>
+
+        <button
+          id="resetButton"
+          class="small-button reset-button"
+          type="button"
+        >
+          計測リセット
+        </button>
+
+        <button
+          id="setupButton"
+          class="small-button"
+          type="button"
+        >
+          人数設定へ
+        </button>
+      </div>
+
+      <div
+        id="counterHelp"
+        class="counter-help"
+      ></div>
+
+      <div class="table-scroll">
+        <div class="lap-table">
+          <div class="table-header">
+            <div class="header-name">
+              名前
+            </div>
+
+            <div class="header-pace">
+              目標<br>ペース
+            </div>
+
+            <div class="header-laps">
+              <div>1周</div>
+              <div>2周</div>
+              <div>3周</div>
+              <div>4周</div>
+              <div>5周</div>
+              <div>6周</div>
+              <div>7周</div>
+              <div>8周</div>
+              <div>9周</div>
+              <div>10周</div>
+            </div>
+
+            <div class="header-actions">
+              操作／合計
+            </div>
+          </div>
+
+          <div id="studentGrid"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ランナー設定 -->
+  <dialog id="editDialog" class="edit-dialog">
+    <form id="editForm">
+      <h2>ランナーの設定</h2>
+
+      <label for="editName">
+        名前
+      </label>
+
+      <input
+        id="editName"
+        type="text"
+        maxlength="100"
+        required
+        autocomplete="off"
+      >
+
+      <label for="editTarget">
+        走る周数
+      </label>
+
+      <select
+        id="editTarget"
+        aria-label="走る周数"
+      ></select>
+
+      <div id="editPaceLabel" class="pace-label">
+        1周あたりの目標ペース
+      </div>
+
+      <div
+        class="pace-selects"
+        role="group"
+        aria-labelledby="editPaceLabel"
+      >
+        <label class="pace-select-item">
+          <select
+            id="editPaceMinutes"
+            aria-label="目標ペースの分"
+          ></select>
+
+          <span>分</span>
+        </label>
+
+        <label class="pace-select-item">
+          <select
+            id="editPaceSeconds"
+            aria-label="目標ペースの秒"
+          ></select>
+
+          <span>秒</span>
+        </label>
+      </div>
+
+      <p class="dialog-help">
+        目標ペースは0秒より大きい値を選んでください。<br>
+        周数を変更すると、そのランナーの記録は初期化されます。
+      </p>
+
+      <label class="checkbox-label">
+        <input id="editReset" type="checkbox">
+        このランナーの記録を初期化する
+      </label>
+
+      <p
+        id="editError"
+        class="error-message"
+        aria-live="polite"
+      ></p>
+
+      <div class="dialog-buttons">
+        <button
+          id="retireButton"
+          class="retire-button"
+          type="button"
+        >
+          リタイヤにする
+        </button>
+
+        <button
+          id="cancelEditButton"
+          type="button"
+        >
+          キャンセル
+        </button>
+
+        <button
+          id="saveEditButton"
+          class="save-button"
+          type="submit"
+        >
+          保存
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 既存のアプリ本体 -->
+  <script src="app.js"></script>
+
+  <script>
+    "use strict";
+
+    /*
+     * app.js の効果音を一部変更する。
+     *
+     * −1：正解音のような「ピンポン！」
+     * ＋1：これまでどおりの「ブブッ」
+     *
+     * 音は操作時に鳴り、サーバーへの記録成功を
+     * 保証するものではありません。
+     */
+    const originalPlayLapEffect = playLapEffect;
+
+    playLapEffect = function (delta) {
+      if (delta !== -1) {
+        originalPlayLapEffect(delta);
+        return;
+      }
+
+      try {
+        const context = getAudioContext();
+
+        if (!context) {
+          return;
+        }
+
+        /*
+         * タップ操作中に音声を再開する。
+         * 音声の再生に失敗しても記録操作は続行する。
+         */
+        if (context.state === "suspended") {
+          context.resume().catch(() => {});
+        }
+
+        const now = context.currentTime + 0.01;
+
+        // 「ピン」：高めの音
+        addTone(context, {
+          frequency: 1046.5,
+          startAt: now,
+          duration: 0.16,
+          type: "sine",
+          volume: 0.15,
+        });
+
+        // 「ポン」：少し低めで長い音
+        addTone(context, {
+          frequency: 783.99,
+          startAt: now + 0.17,
+          duration: 0.34,
+          type: "sine",
+          volume: 0.15,
+        });
+      } catch {
+        // 音声に対応していない場合も画面操作は続行する。
+      }
+    };
+  </script>
+</body>
+</html>
